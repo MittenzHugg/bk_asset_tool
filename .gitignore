@@ -1,0 +1,9 @@
+/target
+
+# N64 roms
+*.z64
+*.n64
+*.v64
+
+/resources
+/assets

@@ -1,0 +1,12 @@
+[package]
+name = "bk_asset_tool"
+version = "0.1.0"
+edition = "2021"
+libs = ["src/librarezip.rlib"]
+
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+rarezip = {path = "rarezip/rust"}
+yaml-rust = "0.4"

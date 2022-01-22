@@ -1,0 +1,3 @@
+[submodule "rarezip"]
+	path = rarezip
+	url = https://github.com/MittenzHugg/rarezip.git
