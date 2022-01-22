@@ -163,20 +163,32 @@ impl AssetFolder{
                 Some(x) => x,
                 None => panic!("None data element reached"),
             };
+            let mut tmp_str: String;
             let data_type_str = match data.get_type(){
+                asset::AssetType::Animation => "Animation",
                 asset::AssetType::Binary => "Binary",
+                asset::AssetType::DemoInput => "DemoInput",
                 asset::AssetType::Dialog => "Dialog",
                 asset::AssetType::GruntyQuestion => "GruntyQuestion",
+                asset::AssetType::Midi => "Midi",
+                asset::AssetType::Model => "Model",
+                asset::AssetType::LevelSetup => "LevelSetup",
                 asset::AssetType::QuizQuestion => "QuizQuestion",
-                asset::AssetType::DemoInput => "DemoInput",
-                _ => "Binary"
+                asset::AssetType::Sprite(fmt) => {let f = format!("{:?}",fmt).to_uppercase(); tmp_str = String::from("Sprite_") + &f; &tmp_str},
+                _ => "Binary",
             };
+            let mut tmp_str2: String;
             let file_ext = match data.get_type(){
                 asset::AssetType::Binary => ".bin",
                 asset::AssetType::Dialog => ".dialog",
                 asset::AssetType::GruntyQuestion => ".grunty_q",
                 asset::AssetType::QuizQuestion => ".quiz_q",
                 asset::AssetType::DemoInput => ".demo",
+                asset::AssetType::Midi => ".midi.bin",
+                asset::AssetType::Model => ".model.bin",
+                asset::AssetType::LevelSetup => ".lvl_setup.bin",
+                asset::AssetType::Animation => "anim.bin",
+                asset::AssetType::Sprite(fmt) => {tmp_str2 = format!("sprite.{:?}.bin",fmt).to_lowercase(); &tmp_str2.as_str()},
                 _ => ".bin"
             };
             let elem_path = asset_export_path.join(format!("{:04X}{}", elem.uid, file_ext));
@@ -221,11 +233,16 @@ impl AssetFolder{
             let uid :usize = y["uid"].as_i64().unwrap() as usize;
             let relative_path = y["relative_path"].as_str().unwrap();
             let data :Option<Box<dyn asset::Asset>> = match y["type"].as_str().unwrap(){
-                "Binary" => Some(Box::new(asset::Binary::read(&containing_folder.join(relative_path)))),
-                "Dialog" => Some(Box::new(asset::Dialog::read(&containing_folder.join(relative_path)))),
-                "GruntyQuestion" => Some(Box::new(asset::GruntyQuestion::read(&containing_folder.join(relative_path)))),
-                "QuizQuestion" => Some(Box::new(asset::QuizQuestion::read(&containing_folder.join(relative_path)))),
-                "DemoInput" => Some(Box::new(asset::DemoButtonFile::read(&containing_folder.join(relative_path)))),
+                "Binary"            => Some(Box::new(asset::Binary::read(&containing_folder.join(relative_path)))),
+                "Dialog"            => Some(Box::new(asset::Dialog::read(&containing_folder.join(relative_path)))),
+                "GruntyQuestion"    => Some(Box::new(asset::GruntyQuestion::read(&containing_folder.join(relative_path)))),
+                "QuizQuestion"      => Some(Box::new(asset::QuizQuestion::read(&containing_folder.join(relative_path)))),
+                "DemoInput"         => Some(Box::new(asset::DemoButtonFile::read(&containing_folder.join(relative_path)))),
+                "Midi"              => Some(Box::new(asset::MidiSeqFile::read(&containing_folder.join(relative_path)))),
+                "Model"             => Some(Box::new(asset::Model::read(&containing_folder.join(relative_path)))),
+                "LevelSetup"        => Some(Box::new(asset::LevelSetup::read(&containing_folder.join(relative_path)))),
+                "Animation"         => Some(Box::new(asset::Animation::read(&containing_folder.join(relative_path)))),
+                x if x.starts_with("Sprite_") => Some(Box::new(asset::Sprite::read(&containing_folder.join(relative_path)))),
                 _ => None
             };
             self.assets[uid].data = data;

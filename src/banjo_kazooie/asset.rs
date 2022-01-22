@@ -5,28 +5,48 @@ use yaml_rust::{Yaml, YamlLoader};
 
 pub fn from_indx_and_bytes(segment :usize, in_bytes: &[u8]) -> Box<dyn Asset>{
     return match segment{
-        //0 => animations
-        //1 => models and sprites
-        //2 => map setup
-        //3 => sprites
+        0 => Box::new(Animation::from_bytes(in_bytes)),
+        1 | 3 => match in_bytes { //models and sprites
+            [0x00, 0x00, 0x00, 0x0B, ..] => Box::new(Model::from_bytes(in_bytes)),
+            _ => Box::new(Sprite::from_bytes(in_bytes)), //sprites
+        },
+        2 => Box::new(LevelSetup::from_bytes(in_bytes)),
         4 => match in_bytes { //Dialog, GruntyQuestions, QuizQuestions, DemoButtonFiles
                 [0x01, 0x01, 0x02, 0x05, 0x00, ..] => Box::new(QuizQuestion::from_bytes(in_bytes)),
                 [0x01, 0x03, 0x00, 0x05, 0x00, ..] => Box::new(GruntyQuestion::from_bytes(in_bytes)),
                 [0x01, 0x03, 0x00,..] => Box::new(Dialog::from_bytes(in_bytes)),
                 _ => Box::new(DemoButtonFile::from_bytes(in_bytes)),
             },
-        //5 => level_models
-        //6 => midi seq
+        5 => Box::new(Model::from_bytes(in_bytes)),
+        6 => Box::new(MidiSeqFile::from_bytes(in_bytes)),
         _ => Box::new(Binary::from_bytes(in_bytes)),
     }
 }
 
+#[derive(PartialEq, Debug, Copy, Clone)]
+pub enum ImgFmt{
+    CI4,
+    CI8,
+    I4,
+    I8,
+    RGBA16,
+    RGBA32,
+    IA4,
+    IA8,
+    Unknown(u16),
+}
+
 pub enum AssetType{
+    Animation,
     Binary,
+    DemoInput,
     Dialog,
     GruntyQuestion,
+    LevelSetup,
+    Midi,
+    Model,
     QuizQuestion,
-    DemoInput,
+    Sprite(ImgFmt),
 }
 
 pub struct Binary{
@@ -452,5 +472,196 @@ impl Asset for DemoButtonFile{
         for input in self.inputs.iter(){
             writeln!(demo_file, "  - {{x: {:3}, y: {:3}, buttons: 0x{:04X}, frames: {}}}", input.x, input.y, input.buttons, input.frames).unwrap();
         }
+    }
+}
+
+/// MidiSeqFile TODO !!!!!!!!!
+///     - struct members
+///     - from_bytes
+///     - read
+///     - to_bytes
+///     - write
+
+pub struct MidiSeqFile{
+    bytes: Vec<u8>,
+}
+
+impl MidiSeqFile{
+    pub fn from_bytes(in_bytes: &[u8])->MidiSeqFile{
+        MidiSeqFile{bytes: in_bytes.to_vec()}
+    }
+
+    pub fn read(path: &Path) -> MidiSeqFile{
+        MidiSeqFile{bytes: fs::read(path).unwrap()}
+    }
+}
+
+impl Asset for MidiSeqFile{
+    fn to_bytes(&self)->Vec<u8>{
+        return self.bytes.clone();
+    }
+
+    fn get_type(&self)->AssetType{
+        return AssetType::Midi;
+    }
+
+    fn write(&self, path: &Path){
+        let mut bin_file = File::create(path).unwrap();
+        bin_file.write_all(&self.bytes).unwrap();
+    }
+}
+
+/// LevelSetup TODO !!!!!!!!!
+///     - struct members
+///     - from_bytes
+///     - read
+///     - to_bytes
+///     - write
+
+pub struct LevelSetup{
+    bytes: Vec<u8>,
+}
+
+impl LevelSetup{
+    pub fn from_bytes(in_bytes: &[u8])->LevelSetup{
+        LevelSetup{bytes: in_bytes.to_vec()}
+    }
+
+    pub fn read(path: &Path) -> LevelSetup{
+        LevelSetup{bytes: fs::read(path).unwrap()}
+    }
+}
+
+impl Asset for LevelSetup{
+    fn to_bytes(&self)->Vec<u8>{
+        return self.bytes.clone();
+    }
+
+    fn get_type(&self)->AssetType{
+        return AssetType::LevelSetup;
+    }
+
+    fn write(&self, path: &Path){
+        let mut bin_file = File::create(path).unwrap();
+        bin_file.write_all(&self.bytes).unwrap();
+    }
+}
+
+/// Animation TODO !!!!!!!!!
+///     - struct members
+///     - from_bytes
+///     - read
+///     - to_bytes
+///     - write
+
+pub struct Animation{
+    bytes: Vec<u8>,
+}
+
+impl Animation{
+    pub fn from_bytes(in_bytes: &[u8])->Animation{
+        Animation{bytes: in_bytes.to_vec()}
+    }
+
+    pub fn read(path: &Path) -> Animation{
+        Animation{bytes: fs::read(path).unwrap()}
+    }
+}
+
+impl Asset for Animation{
+    fn to_bytes(&self)->Vec<u8>{
+        return self.bytes.clone();
+    }
+
+    fn get_type(&self)->AssetType{
+        return AssetType::Animation;
+    }
+
+    fn write(&self, path: &Path){
+        let mut bin_file = File::create(path).unwrap();
+        bin_file.write_all(&self.bytes).unwrap();
+    }
+}
+
+/// Model TODO !!!!!!!!!
+///     - struct members
+///     - from_bytes
+///     - read
+///     - to_bytes
+///     - write
+
+pub struct Model{
+    bytes: Vec<u8>,
+}
+
+impl Model{
+    pub fn from_bytes(in_bytes: &[u8])->Model{
+        Model{bytes: in_bytes.to_vec()}
+    }
+
+    pub fn read(path: &Path) -> Model{
+        Model{bytes: fs::read(path).unwrap()}
+    }
+}
+
+impl Asset for Model{
+    fn to_bytes(&self)->Vec<u8>{
+        return self.bytes.clone();
+    }
+
+    fn get_type(&self)->AssetType{
+        return AssetType::Model;
+    }
+
+    fn write(&self, path: &Path){
+        let mut bin_file = File::create(path).unwrap();
+        bin_file.write_all(&self.bytes).unwrap();
+    }
+}
+
+/// Sprite TODO !!!!!!!!!
+///     - struct members
+///     - from_bytes
+///     - read
+///     - to_bytes
+///     - write
+
+pub struct Sprite{
+    format: ImgFmt,
+    bytes: Vec<u8>,
+}
+
+impl Sprite{
+    pub fn from_bytes(in_bytes: &[u8])->Sprite{
+        let format = u16::from_be_bytes([in_bytes[2], in_bytes[3]]);
+        let frmt = match format{
+            0x0001 => ImgFmt::CI4,
+            0x0004 => ImgFmt::CI8,
+            0x0020 => ImgFmt::I4,
+            0x0040 => ImgFmt::I8,
+            0x0400 => ImgFmt::RGBA16,
+            0x0800 => ImgFmt::RGBA32,
+            _ => ImgFmt::Unknown(format),
+        };
+        Sprite{format: frmt, bytes: in_bytes.to_vec()}
+    }
+
+    pub fn read(path: &Path) -> Sprite{
+        Sprite{format: ImgFmt::Unknown(0), bytes: fs::read(path).unwrap()}
+    }
+}
+
+impl Asset for Sprite{
+    fn to_bytes(&self)->Vec<u8>{
+        return self.bytes.clone();
+    }
+
+    fn get_type(&self)->AssetType{
+        return AssetType::Sprite(self.format);
+    }
+
+    fn write(&self, path: &Path){
+        let mut bin_file = File::create(path).unwrap();
+        bin_file.write_all(&self.bytes).unwrap();
     }
 }
