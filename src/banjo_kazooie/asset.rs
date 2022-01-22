@@ -3,12 +3,20 @@ use std::io::{Write, Read};
 use std::path::Path;
 use yaml_rust::{Yaml, YamlLoader};
 
-pub fn from_indx_and_bytes(i :usize, in_bytes: &[u8]) -> Box<dyn Asset>{
-    return match in_bytes {
-        [0x01, 0x01, 0x02, 0x05, 0x00, ..] => Box::new(QuizQuestion::from_bytes(in_bytes)),
-        [0x01, 0x03, 0x00, 0x05, 0x00, ..] => Box::new(GruntyQuestion::from_bytes(in_bytes)),
-        [0x01, 0x03, 0x00,..] => {
-            Box::new(Dialog::from_bytes(in_bytes))},
+pub fn from_indx_and_bytes(segment :usize, in_bytes: &[u8]) -> Box<dyn Asset>{
+    return match segment{
+        //0 => animations
+        //1 => models and sprites
+        //2 => map setup
+        //3 => sprites
+        4 => match in_bytes { //Dialog, GruntyQuestions, QuizQuestions, DemoInputs
+                [0x01, 0x01, 0x02, 0x05, 0x00, ..] => Box::new(QuizQuestion::from_bytes(in_bytes)),
+                [0x01, 0x03, 0x00, 0x05, 0x00, ..] => Box::new(GruntyQuestion::from_bytes(in_bytes)),
+                [0x01, 0x03, 0x00,..] => Box::new(Dialog::from_bytes(in_bytes)),
+                _ => Box::new(Binary::from_bytes(in_bytes)),
+            },
+        //5 => level_models
+        //6 => midi seq
         _ => Box::new(Binary::from_bytes(in_bytes)),
     }
 }

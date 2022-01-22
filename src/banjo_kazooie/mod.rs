@@ -35,13 +35,14 @@ impl AssetMeta {
 // struct containing metadata and maybe a dyn asset::Asset
 struct AssetEntry{
     pub uid  : usize,
+    pub seg : usize,
     pub meta : AssetMeta,
     pub data : Option<Box<dyn asset::Asset>>
 }
 
 impl AssetEntry{
     pub fn new(uid:usize)->AssetEntry{
-        AssetEntry{uid: uid, meta: AssetMeta{offset:0, c_flag:false, t_flag:4}, data: None}
+        AssetEntry{uid: uid, seg: 0, meta: AssetMeta{offset:0, c_flag:false, t_flag:4}, data: None}
     }
 
     pub fn from_yaml(yaml:&Yaml)->AssetEntry{
@@ -68,12 +69,20 @@ impl AssetFolder{
         let (table_bytes, data_bytes) = in_bytes[8..].split_at(8*asset_slot_cnt);
 
         let meta_info : Vec<AssetMeta> = table_bytes.chunks_exact(8).map(|chunk| {AssetMeta::from_bytes(chunk)}).collect();
+        let mut segment : usize = 0;
+        let mut prev_t : u16 = 0;
         let asset_list : Vec<AssetEntry> = meta_info.windows(2).enumerate().map(|(i, window)|{
             let this = &window[0];
             let next = &window[1];
 
             if this.t_flag == 4{ //empty entry
-                return AssetEntry{uid : i, meta : this.clone(), data : None};
+                return AssetEntry{uid : i, seg : 0, meta : this.clone(), data : None};
+            }
+            else if (this.t_flag != 2)
+                    && (prev_t & 2) != (this.t_flag & 2)
+            {
+                segment += 1;
+                prev_t = this.t_flag;
             }
 
             //decompress
@@ -82,9 +91,9 @@ impl AssetFolder{
                 true  => bk::unzip(comp_bin),
                 false => comp_bin.to_vec(),
             };
-
-            let this_asset = asset::from_indx_and_bytes(i, &decomp_bin);
-            return AssetEntry{uid : i, meta : this.clone(), data : Some(this_asset)}
+            let this_asset = asset::from_indx_and_bytes(segment-1, &decomp_bin);
+            let out = AssetEntry{uid : i, seg :segment-1, meta : this.clone(), data : Some(this_asset)};
+            return out
         }).collect();
 
 
