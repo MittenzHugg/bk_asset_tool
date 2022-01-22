@@ -380,17 +380,14 @@ impl ContInput{
     }
 }
 
-/// ToDo:
-///     - read
 pub struct DemoButtonFile{
     inputs: Vec<ContInput>,
     frame1_flag: u8,
-    bytes: Vec<u8>, //remove once conversion confirmed correct
 }
 
 impl DemoButtonFile{
     pub fn from_bytes(in_bytes: &[u8])->DemoButtonFile{
-        if in_bytes.len() < 4 { return DemoButtonFile{inputs: Vec::new(), frame1_flag: 0, bytes: in_bytes.to_vec()}}
+        if in_bytes.len() < 4 { return DemoButtonFile{inputs: Vec::new(), frame1_flag: 0}}
         let expect_len : usize =  u32::from_be_bytes(in_bytes[..4].try_into().unwrap()) as usize;
         let f1f = in_bytes[9];
         let inputs : Vec<ContInput> = in_bytes[4..].chunks_exact(6)
@@ -404,12 +401,10 @@ impl DemoButtonFile{
             })
             .collect();
         assert_eq!(expect_len, inputs.len()*6);
-        DemoButtonFile{inputs: inputs, frame1_flag: f1f, bytes: in_bytes.to_vec()}
+        DemoButtonFile{inputs: inputs, frame1_flag: f1f}
     }
 
     pub fn read(path: &Path) -> DemoButtonFile{
-        // return DemoButtonFile{inputs: Vec::new(), frame1_flag: 0, bytes: Vec::new()};
-        
         let doc = &YamlLoader::load_from_str(&fs::read_to_string(path).expect("could not open yaml")).unwrap()[0];
         let doc_type = doc["type"].as_str().unwrap();
         let f1f = doc["flag"].as_i64().unwrap() as u8;
@@ -420,7 +415,7 @@ impl DemoButtonFile{
             ContInput::from_yaml(y)
         })
         .collect();
-        return DemoButtonFile{inputs:inputs, frame1_flag: f1f, bytes: Vec::new()}
+        return DemoButtonFile{inputs:inputs, frame1_flag: f1f}
     }
 }
 
@@ -444,11 +439,6 @@ impl Asset for DemoButtonFile{
     }
 
     fn write(&self, path: &Path){
-        //bin output //REMOVE once matching read is created
-        // let mut bin_file = File::create(path).unwrap();
-        // bin_file.write_all(&self.bytes).unwrap();
-
-        //.demo_output
         let mut demo_path = path.parent().unwrap().join(path.file_stem().unwrap());
         demo_path.set_extension("demo");
         let mut demo_file = File::create(demo_path).unwrap();
