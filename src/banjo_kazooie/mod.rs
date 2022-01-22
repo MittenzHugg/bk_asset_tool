@@ -122,7 +122,7 @@ impl AssetFolder{
         out.append(&mut vec![0xff, 0xff, 0xff, 0xff]);
 
         let mut meta_bytes : Vec<u8> = self.assets.iter()
-            .map(|a|{println!("{:02X?}", a.meta.to_bytes()) ;return a.meta.to_bytes()})
+            .map(|a|{return a.meta.to_bytes()})
             .flatten()
             .collect();
 
@@ -139,14 +139,13 @@ impl AssetFolder{
         let asset_export_path = out_dir_path.join("assets");
 
         //write assets.yaml
-        println!("{:?}", asset_yaml_path);
         let mut asset_yaml = fs::File::create(&asset_yaml_path).expect("could not write file");
         
         DirBuilder::new().recursive(true).create(&asset_export_path).unwrap();
         assert!(fs::metadata(&asset_export_path).unwrap().is_dir());
 
         //assets.to_file
-        writeln!(asset_yaml, "tbl_len: 0x{:X}", self.assets.len());
+        writeln!(asset_yaml, "tbl_len: 0x{:X}", self.assets.len() + 1);
         writeln!(asset_yaml, "files:");
         for elem in self.assets.iter()
             .filter(|a| match a.data {None => false, _ => true})
@@ -157,9 +156,11 @@ impl AssetFolder{
             };
             let data_type_str = match data.get_type(){
                 asset::AssetType::Binary => "Binary",
+                asset::AssetType::Dialog => "Dialog",
             };
             let file_ext = match data.get_type(){
                 asset::AssetType::Binary => ".bin",
+                asset::AssetType::Dialog => ".dialog.yaml",
             };
             let elem_path = asset_export_path.join(format!("{:04X}{}", elem.uid, file_ext));
             let relative_path = elem_path.strip_prefix(out_dir_path).unwrap().to_str().unwrap();
@@ -204,6 +205,7 @@ impl AssetFolder{
             let relative_path = y["relative_path"].as_str().unwrap();
             let data :Option<Box<dyn asset::Asset>> = match y["type"].as_str().unwrap(){
                 "Binary" => Some(Box::new(asset::Binary::read(&containing_folder.join(relative_path)))),
+                "Dialog" => Some(Box::new(asset::Dialog::read(&containing_folder.join(relative_path)))),
                 _ => None
             };
             self.assets[uid].data = data;
