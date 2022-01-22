@@ -168,19 +168,22 @@ impl AssetFolder{
                 asset::AssetType::Dialog => "Dialog",
                 asset::AssetType::GruntyQuestion => "GruntyQuestion",
                 asset::AssetType::QuizQuestion => "QuizQuestion",
+                asset::AssetType::DemoInput => "DemoInput",
+                _ => "Binary"
             };
             let file_ext = match data.get_type(){
                 asset::AssetType::Binary => ".bin",
-                asset::AssetType::Dialog => ".dialog.yaml",
-                asset::AssetType::GruntyQuestion => ".grunty_q.yaml",
-                asset::AssetType::QuizQuestion => ".quiz_q.yaml",
-                _ => ".bin",
+                asset::AssetType::Dialog => ".dialog",
+                asset::AssetType::GruntyQuestion => ".grunty_q",
+                asset::AssetType::QuizQuestion => ".quiz_q",
+                asset::AssetType::DemoInput => ".demo",
+                _ => ".bin"
             };
             let elem_path = asset_export_path.join(format!("{:04X}{}", elem.uid, file_ext));
             let relative_path = elem_path.strip_prefix(out_dir_path).unwrap().to_str().unwrap();
             writeln!(asset_yaml, "  - {{uid: 0x{:04X}, type: {:6}, compressed: {:5}, flags: 0x{:04X}, relative_path: {:?}}}", elem.uid, data_type_str, elem.meta.c_flag, elem.meta.t_flag, relative_path).unwrap();
         
-            data.write(&elem_path)
+            data.write(&elem_path);
         }
 
 
@@ -222,6 +225,7 @@ impl AssetFolder{
                 "Dialog" => Some(Box::new(asset::Dialog::read(&containing_folder.join(relative_path)))),
                 "GruntyQuestion" => Some(Box::new(asset::GruntyQuestion::read(&containing_folder.join(relative_path)))),
                 "QuizQuestion" => Some(Box::new(asset::QuizQuestion::read(&containing_folder.join(relative_path)))),
+                "DemoInput" => Some(Box::new(asset::DemoButtonFile::read(&containing_folder.join(relative_path)))),
                 _ => None
             };
             self.assets[uid].data = data;

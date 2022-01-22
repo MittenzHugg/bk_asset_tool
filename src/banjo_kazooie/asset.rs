@@ -9,11 +9,11 @@ pub fn from_indx_and_bytes(segment :usize, in_bytes: &[u8]) -> Box<dyn Asset>{
         //1 => models and sprites
         //2 => map setup
         //3 => sprites
-        4 => match in_bytes { //Dialog, GruntyQuestions, QuizQuestions, DemoInputs
+        4 => match in_bytes { //Dialog, GruntyQuestions, QuizQuestions, DemoButtonFiles
                 [0x01, 0x01, 0x02, 0x05, 0x00, ..] => Box::new(QuizQuestion::from_bytes(in_bytes)),
                 [0x01, 0x03, 0x00, 0x05, 0x00, ..] => Box::new(GruntyQuestion::from_bytes(in_bytes)),
                 [0x01, 0x03, 0x00,..] => Box::new(Dialog::from_bytes(in_bytes)),
-                _ => Box::new(Binary::from_bytes(in_bytes)),
+                _ => Box::new(DemoButtonFile::from_bytes(in_bytes)),
             },
         //5 => level_models
         //6 => midi seq
@@ -26,6 +26,7 @@ pub enum AssetType{
     Dialog,
     GruntyQuestion,
     QuizQuestion,
+    DemoInput,
 }
 
 pub struct Binary{
@@ -355,4 +356,111 @@ fn vecu8_to_string(bytes: &Vec<u8>) -> String{
         }
     }
     return out
+}
+
+struct ContInput{
+    x: i8,
+    y: i8,
+    buttons: u16,
+    frames: u8,
+}
+
+impl ContInput{
+    fn to_bytes(&self)->Vec<u8>{
+        let b = self.buttons.to_be_bytes();
+        return vec![self.x as u8, self.y as u8, b[0], b[1], self.frames, 0x00];
+    }
+
+    fn from_yaml(yaml: &Yaml)->ContInput{
+        let x = yaml["x"].as_i64().unwrap() as i8;
+        let y = yaml["y"].as_i64().unwrap() as i8;
+        let buttons = yaml["buttons"].as_i64().unwrap() as u16;
+        let frames = yaml["frames"].as_i64().unwrap() as u8;
+        return ContInput{x: x, y: y, buttons: buttons, frames: frames}
+    }
+}
+
+/// ToDo:
+///     - read
+pub struct DemoButtonFile{
+    inputs: Vec<ContInput>,
+    frame1_flag: u8,
+    bytes: Vec<u8>, //remove once conversion confirmed correct
+}
+
+impl DemoButtonFile{
+    pub fn from_bytes(in_bytes: &[u8])->DemoButtonFile{
+        if in_bytes.len() < 4 { return DemoButtonFile{inputs: Vec::new(), frame1_flag: 0, bytes: in_bytes.to_vec()}}
+        let expect_len : usize =  u32::from_be_bytes(in_bytes[..4].try_into().unwrap()) as usize;
+        let f1f = in_bytes[9];
+        let inputs : Vec<ContInput> = in_bytes[4..].chunks_exact(6)
+            .map(|a|{
+                ContInput{
+                    x : a[0] as i8, 
+                    y : a[1] as i8,
+                    buttons : u16::from_be_bytes([a[2], a[3]]),
+                    frames : a[4],
+                }
+            })
+            .collect();
+        assert_eq!(expect_len, inputs.len()*6);
+        DemoButtonFile{inputs: inputs, frame1_flag: f1f, bytes: in_bytes.to_vec()}
+    }
+
+    pub fn read(path: &Path) -> DemoButtonFile{
+        // return DemoButtonFile{inputs: Vec::new(), frame1_flag: 0, bytes: Vec::new()};
+        
+        let doc = &YamlLoader::load_from_str(&fs::read_to_string(path).expect("could not open yaml")).unwrap()[0];
+        let doc_type = doc["type"].as_str().unwrap();
+        let f1f = doc["flag"].as_i64().unwrap() as u8;
+        assert_eq!(doc_type, "DemoInput");
+        
+        let inputs_yaml = doc["inputs"].as_vec().unwrap();
+        let mut inputs : Vec<ContInput> = inputs_yaml.iter().map(|y|{
+            ContInput::from_yaml(y)
+        })
+        .collect();
+        return DemoButtonFile{inputs:inputs, frame1_flag: f1f, bytes: Vec::new()}
+    }
+}
+
+impl Asset for DemoButtonFile{
+    fn to_bytes(&self)->Vec<u8>{
+        if self.inputs.is_empty() { return Vec::new(); }
+
+        let mut output : Vec<u8> = (6*self.inputs.len() as u32).to_be_bytes().to_vec();
+        let mut input_bytes : Vec<u8> = self.inputs.iter().map(|i|{
+            i.to_bytes()
+        })
+        .flatten()
+        .collect();
+        input_bytes[5] = self.frame1_flag;
+        output.append(&mut input_bytes);
+        return output;
+    }
+
+    fn get_type(&self)->AssetType{
+        return AssetType::DemoInput;
+    }
+
+    fn write(&self, path: &Path){
+        //bin output //REMOVE once matching read is created
+        // let mut bin_file = File::create(path).unwrap();
+        // bin_file.write_all(&self.bytes).unwrap();
+
+        //.demo_output
+        let mut demo_path = path.parent().unwrap().join(path.file_stem().unwrap());
+        demo_path.set_extension("demo");
+        let mut demo_file = File::create(demo_path).unwrap();
+        writeln!(demo_file, "type: DemoInput").unwrap();
+        writeln!(demo_file, "flag: 0x{:02X}", self.frame1_flag).unwrap();
+        if(self.inputs.len() == 0){
+            writeln!(demo_file, "inputs: []").unwrap();
+            return;
+        }
+        writeln!(demo_file, "inputs:").unwrap();
+        for input in self.inputs.iter(){
+            writeln!(demo_file, "  - {{x: {:3}, y: {:3}, buttons: 0x{:04X}, frames: {}}}", input.x, input.y, input.buttons, input.frames).unwrap();
+        }
+    }
 }
