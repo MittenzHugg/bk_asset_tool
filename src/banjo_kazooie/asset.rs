@@ -200,7 +200,7 @@ impl QuizQuestion{
 
 impl Asset for QuizQuestion{
     fn to_bytes(&self)->Vec<u8>{
-        let mut out :Vec<u8> = vec![0x01, 0x03, 0x00, 0x05, 0x00];
+        let mut out :Vec<u8> = vec![0x01, 0x01, 0x02, 0x05, 0x00];
         out.push((self.question.len() + self.options.len()) as u8);
         for text in self.question.iter(){
             out.push(text.cmd);
