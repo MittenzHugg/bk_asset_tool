@@ -4,9 +4,9 @@ version = "0.1.0"
 edition = "2021"
 libs = ["src/librarezip.rlib"]
 
-
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 rarezip = {path = "rarezip/rust"}
 yaml-rust = "0.4"
+png = "0.17.2"

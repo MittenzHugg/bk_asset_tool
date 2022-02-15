@@ -1,15 +1,16 @@
-use std::fs::{self, File};
-use std::io::{Write, Read};
+use std::fs::{self, File, DirBuilder};
+use std::io::{Write, Read, BufWriter};
 use std::path::Path;
 use yaml_rust::{Yaml, YamlLoader};
+use png;
 
-pub fn from_indx_and_bytes(segment :usize, in_bytes: &[u8]) -> Box<dyn Asset>{
+pub fn from_seg_indx_and_bytes(segment :usize, i :usize, in_bytes: &[u8]) -> Box<dyn Asset>{
     return match segment{
         0 => Box::new(Animation::from_bytes(in_bytes)),
         1 | 3 => match in_bytes { //models and sprites
             [0x00, 0x00, 0x00, 0x0B, ..] => Box::new(Model::from_bytes(in_bytes)),
-            _ => Box::new(Sprite::from_bytes(in_bytes)), //sprites
-        },
+            _ => Box::new(Sprite::from_bytes(in_bytes)),
+        }, //sprites
         2 => Box::new(LevelSetup::from_bytes(in_bytes)),
         4 => match in_bytes { //Dialog, GruntyQuestions, QuizQuestions, DemoButtonFiles
                 [0x01, 0x01, 0x02, 0x05, 0x00, ..] => Box::new(QuizQuestion::from_bytes(in_bytes)),
@@ -459,9 +460,7 @@ impl Asset for DemoButtonFile{
     }
 
     fn write(&self, path: &Path){
-        let mut demo_path = path.parent().unwrap().join(path.file_stem().unwrap());
-        demo_path.set_extension("demo");
-        let mut demo_file = File::create(demo_path).unwrap();
+        let mut demo_file = File::create(path).unwrap();
         writeln!(demo_file, "type: DemoInput").unwrap();
         writeln!(demo_file, "flag: 0x{:02X}", self.frame1_flag).unwrap();
         if(self.inputs.len() == 0){
@@ -619,20 +618,375 @@ impl Asset for Model{
     }
 }
 
-/// Sprite TODO !!!!!!!!!
-///     - struct members
-///     - from_bytes
-///     - read
-///     - to_bytes
-///     - write
+pub struct Texture {
+    texture_type: ImgFmt,
+    w : usize,
+    h : usize,
+
+    palette : Option<Vec<u8>>,
+    pixel_data : Vec<u8>,
+}
+
+impl Texture {
+    pub fn new(texture_type: ImgFmt, w : usize, h : usize, bin : &[u8])->Texture{
+        let palette : Option<Vec<u8>> = match texture_type{
+            ImgFmt::CI4 => Some(bin[0.. 0x20].to_vec()),
+            ImgFmt::CI8 => Some(bin[0.. 0x200].to_vec()),
+            _=> None,
+        };
+        
+        let pixel_data = match texture_type {
+            ImgFmt::CI4 => &bin[0x20..],
+            ImgFmt::CI8 => &bin[0x200..],
+            _ => bin,
+        };
+
+        return Texture{
+            texture_type : texture_type, 
+            w : w,
+            h : h,
+            palette : palette,
+            pixel_data : pixel_data.to_vec(),
+        }
+    }
+
+    pub fn to_rgba32(&self) -> Vec<u8>{
+        match self.texture_type{
+            ImgFmt::CI4 => 
+            {   
+                match &self.palette{
+                    None => panic!("Expected CI4 palette, but none found"),
+                    Some(pal) => Texture::ci4_to_rgba32(&self.pixel_data, &pal)
+                }
+            },
+            ImgFmt::CI8 => 
+            {   
+                match &self.palette{
+                    None => panic!("Expected CI8 palette, but none found"),
+                    Some(pal) => Texture::ci8_to_rgba32(&self.pixel_data, &pal)
+                }
+            }
+            ImgFmt::RGBA16 => Texture::rgba16_to_rgba32(&self.pixel_data),
+            ImgFmt::RGBA32 => self.pixel_data.clone(),
+            ImgFmt::I4 => Texture::i4_to_rgba32(&self.pixel_data),
+            ImgFmt::I8 => Texture::i8_to_rgba32(&self.pixel_data),
+            ImgFmt::IA4 => Texture::ia4_to_rgba32(&self.pixel_data),
+            ImgFmt::IA8 => Texture::ia8_to_rgba32(&self.pixel_data),
+            _ => {panic!("Image type not implemented yet");},
+
+        }
+    }
+
+    pub fn rgba16_to_rgba32(rgba16 : &[u8])->Vec<u8>{
+        return rgba16.chunks_exact(2)
+            .map(|a|{
+                let val = u16::from_be_bytes([a[0], a[1]]);
+                let r16 = ((val >> 11) & 0x1f) as u8;
+                let g16 = ((val >> 6) & 0x1f) as u8;
+                let b16 = ((val >> 1) & 0x1f) as u8;
+                let a16 = (val & 0x1) as u8;
+
+                let r32 = (r16 << 3) | (r16 >> 3);
+                let g32 = (g16 << 3) | (g16 >> 3);
+                let b32 = (b16 << 3) | (b16 >> 3);
+                let a32 = (((a16 << 7) as i8) >> 7) as u8;
+
+                return [r32, g32, b32, a32]
+            })
+            .flatten()
+            .collect()
+    }
+
+    pub fn ci4_to_rgba32(ci4 : &[u8], palatte: &[u8])->Vec<u8>{
+        let pal : Vec<[u8; 4]> = palatte.chunks_exact(2)
+            .map(|a|{
+                let val = u16::from_be_bytes([a[0], a[1]]);
+                let r16 = ((val >> 11) & 0x1f) as u8;
+                let g16 = ((val >> 6) & 0x1f) as u8;
+                let b16 = ((val >> 1) & 0x1f) as u8;
+                let a16 = (val & 0x1) as u8;
+
+                let r32 = (r16 << 3) | (r16 >> 3);
+                let g32 = (g16 << 3) | (g16 >> 3);
+                let b32 = (b16 << 3) | (b16 >> 3);
+                let a32 = (((a16 << 7) as i8) >> 7) as u8;
+
+                [r32, g32, b32, a32]
+            })
+            .collect();
+
+        return ci4
+            .into_iter()
+            .map(|a|{[a >> 4, a & 0xF]}) //cvt to ci8
+            .flatten()
+            .map(|indx|{pal[indx as usize]})
+            .flatten()
+            .collect()
+    }
+    pub fn ci8_to_rgba32(ci8 : &[u8], palatte: &[u8])->Vec<u8>{
+        let pal : Vec<[u8; 4]> = palatte.chunks_exact(2)
+            .map(|a|{
+                let val = u16::from_be_bytes([a[0], a[1]]);
+                let r16 = ((val >> 11) & 0x1f) as u8;
+                let g16 = ((val >> 6) & 0x1f) as u8;
+                let b16 = ((val >> 1) & 0x1f) as u8;
+                let a16 = (val & 0x1) as u8;
+
+                let r32 = (r16 << 3) | (r16 >> 3);
+                let g32 = (g16 << 3) | (g16 >> 3);
+                let b32 = (b16 << 3) | (b16 >> 3);
+                let a32 = (((a16 << 7) as i8) >> 7) as u8;
+
+                [r32, g32, b32, a32]
+            })
+            .collect();
+
+        return ci8
+            .iter()
+            .map(|indx|{pal[*indx as usize]})
+            .flatten()
+            .collect()
+    }
+
+    pub fn i4_to_rgba32(i_4 : &[u8])->Vec<u8>{
+        return i_4.into_iter()
+            .map(|a|{
+                let val1 = (a & 0xF0) | (a >> 4);
+                let val2 = (a << 4) | (a & 0xF);
+                [val1, val1, val1, 0xFF, val2, val2, val2, 0xFF]
+            })
+            .flatten()
+            .collect()
+    }
+
+    pub fn i8_to_rgba32(i_8 : &[u8])->Vec<u8>{
+        return i_8.iter()
+            .map(|a|{
+                let val = *a;
+                [val, val, val, 0xFF]
+            })
+            .flatten()
+            .collect()
+    }
+
+    pub fn ia4_to_rgba32(ia4 : &[u8])->Vec<u8>{
+        return ia4
+            .into_iter()
+            .map(|a|{
+                let i1 = (a & 0xE0) | (a >> 3) | (a >> 6);
+                let a1 = (((a << 3) as i8) >> 7) as u8;
+                let i2 = (a >> 1) & 0x7;
+                let i2 = (i2 << 5) | (i2 << 2) | (i2 >> 1);
+                let a2 = (((a << 7) as i8) >> 7) as u8;
+                [i1, i1, i1, a1, i2, i2, i2, a2]
+            })
+            .flatten()
+            .collect()
+    }
+
+    pub fn ia8_to_rgba32(ia8 : &[u8])->Vec<u8>{
+        return ia8
+            .iter()
+            .map(|a|{
+                let val = (*a & 0xF0) | (*a >> 4);
+                let alpha = (*a << 4) | (*a & 0xF);
+                [val, val, val, alpha]
+            })
+            .flatten()
+            .collect()
+    }
+}
+
+struct SpriteChunk {
+    x : isize,
+    y : isize,
+    w : usize,
+    h : usize,
+    pub pixel_data : Vec<u8>,
+}
+
+impl SpriteChunk {
+    pub fn new(bin : &[u8], file_offset : &mut usize, format : &ImgFmt)->SpriteChunk{
+        let chunk_bin = &bin[*file_offset..];
+        let x = i16::from_be_bytes([chunk_bin[0], chunk_bin[1]]) as isize;
+        let y = i16::from_be_bytes([chunk_bin[2], chunk_bin[3]]) as isize;
+        let w = u16::from_be_bytes([chunk_bin[4], chunk_bin[5]]) as usize;
+        let h = u16::from_be_bytes([chunk_bin[6], chunk_bin[7]]) as usize;
+        // println!("\t\t{:02X?}", &chunk_bin[..8]);
+        *file_offset += 8;
+        *file_offset = (*file_offset + (8 - 1)) & !(8 - 1); //align
+        let pxl_size : usize = match format{
+            ImgFmt::I4 | ImgFmt::IA4 | ImgFmt::CI4 => 4,
+            ImgFmt::I8 | ImgFmt::IA8 | ImgFmt::CI8 => 8,
+            ImgFmt::RGBA16 => 16,
+            ImgFmt::RGBA32 => 32,
+            _=> 0,
+        };
+        let data_size : usize = w*h*pxl_size/8;
+
+        let data : Vec<u8> = bin[*file_offset .. *file_offset + data_size].to_vec();
+        *file_offset += data_size;
+
+        SpriteChunk{
+            x : x, 
+            y : y, 
+            w : w, 
+            h : h,
+            pixel_data : data, 
+        }
+    }
+}
+
+pub struct SpriteFrame {
+    w : usize,
+    h : usize,
+    pub header: Vec<u8>,
+    pub chk_hdrs: Vec<Vec<u8>>,
+    palette : Option<Vec<u8>>,
+    pixel_data : Vec<u8>,
+}
+
+impl SpriteFrame {
+    pub fn new(bin : &[u8], file_offset : usize, format : &ImgFmt)->SpriteFrame{
+        let header = bin[file_offset..file_offset+0x14].to_vec();
+        // println!("\t{:02X?}", &header);
+        let frame_bin = &bin[file_offset..];
+        let x = i16::from_be_bytes([frame_bin[0], frame_bin[1]]) as isize;
+        let y = i16::from_be_bytes([frame_bin[2], frame_bin[3]]) as isize;
+        let w = u16::from_be_bytes([frame_bin[4], frame_bin[5]]) as usize;
+        let h = u16::from_be_bytes([frame_bin[6], frame_bin[7]]) as usize;
+        let mut pxl_data : Vec<Vec<[u8;4]>> = vec![vec![[0; 4]; w]; h];
+        
+        let chunk_cnt = u16::from_be_bytes([frame_bin[8], frame_bin[9]]);
+        let mut palette :Vec<u8> = Vec::new();
+
+        let mut offset = file_offset + 0x14;
+        let mut chunks : Vec<SpriteChunk> = Vec::new();
+        let mut chk_hdrs : Vec<Vec<u8>> = Vec::new();
+
+        match format {
+            ImgFmt::CI4 => {
+                //align with file
+                offset = (offset + (8 - 1)) & !(8 - 1) ; //align to 0x8
+                palette  = bin[offset.. offset + 0x20].to_vec();
+                offset += 0x20;
+                
+                let mut i = 0;
+                while i < chunk_cnt{
+                    chk_hdrs.push(bin[offset.. offset + 8].to_vec());
+                    chunks.push(SpriteChunk::new(bin, &mut offset, format));
+                    i += 1;
+                }                
+            }
+            ImgFmt::CI8 => {
+                //align with file
+                offset = (offset + (8 - 1)) & !(8 - 1) ; //align to 0x8
+                palette  = bin[offset.. offset + 0x200].to_vec();
+                offset += 0x200;
+                let mut i = 0;
+                while i < chunk_cnt{
+                    chk_hdrs.push(bin[offset.. offset + 8].to_vec());
+                    chunks.push(SpriteChunk::new(bin, &mut offset, format));
+                    i += 1;
+                }
+            }
+            ImgFmt::I4 => {
+                offset = offset;
+                let mut i = 0;
+                while i < chunk_cnt{
+                    chk_hdrs.push(bin[offset.. offset + 8].to_vec());
+                    chunks.push(SpriteChunk::new(bin, &mut offset, format));
+                    i += 1;
+                }
+            }
+            ImgFmt::I8 => {
+                offset = offset;
+                let mut i = 0;
+                while i < chunk_cnt{
+                    chk_hdrs.push(bin[offset.. offset + 8].to_vec());
+                    chunks.push(SpriteChunk::new(bin, &mut offset, format));
+                    i += 1;
+                }
+            }
+            ImgFmt::RGBA32 => {
+                offset = offset;
+                let mut i = 0;
+                while i < chunk_cnt{
+                    chk_hdrs.push(bin[offset.. offset + 8].to_vec());
+                    chunks.push(SpriteChunk::new(bin, &mut offset, format));
+                    i += 1;
+                }
+            }
+            ImgFmt::RGBA16 => {
+                offset = offset;
+                let mut i = 0;
+                while i < chunk_cnt{
+                    chk_hdrs.push(bin[offset.. offset + 8].to_vec());
+                    chunks.push(SpriteChunk::new(bin, &mut offset, format));
+                    i += 1;
+                }
+            }
+            _ => {}
+        }
+
+        for chnk in chunks{
+            let raw_data = match format {
+                ImgFmt::CI4    => Texture::ci4_to_rgba32(&chnk.pixel_data, &palette),
+                ImgFmt::CI8    => Texture::ci8_to_rgba32(&chnk.pixel_data, &palette),
+                ImgFmt::I4     => Texture::i4_to_rgba32(&chnk.pixel_data),
+                ImgFmt::I8     => Texture::i4_to_rgba32(&chnk.pixel_data),
+                ImgFmt::RGBA16 => Texture::rgba16_to_rgba32(&chnk.pixel_data),
+                ImgFmt::RGBA32 => chnk.pixel_data,
+                ImgFmt::IA4    => Texture::ia4_to_rgba32(&chnk.pixel_data),
+                ImgFmt::IA8    => Texture::ia4_to_rgba32(&chnk.pixel_data),
+                _=> Vec::new(),
+            };
+
+            if(chunk_cnt) == 1{
+                let row_data : Vec<&[u8]> = raw_data.chunks_exact(4*chnk.w).collect();
+
+                for (j,row) in row_data.iter().enumerate(){
+                    for (i, pxl) in row.chunks_exact(4).enumerate(){
+                        let fx :isize = i as isize;
+                        let fy :isize = j as isize;
+                        if (0 <= fx) && (fx < (w as isize)) && (0 <= fy) && (fy < (h as isize)){
+                            pxl_data[fy as usize][fx as usize] = pxl.try_into().unwrap();
+                        }
+                    }
+                }
+            }
+            else{
+                let row_data : Vec<&[u8]> = raw_data.chunks_exact(4*chnk.w).collect();
+                for (j,row) in row_data.iter().enumerate(){
+                    for (i, pxl) in row.chunks_exact(4).enumerate(){
+                        let fx :isize = (chnk.x + i as isize) as isize;
+                        let fy :isize = (chnk.y + j as isize) as isize;
+                        if (0 <= fx) && (fx < (w as isize)) && (0 <= fy) && (fy < (h as isize)){
+                            pxl_data[fy as usize][fx as usize] = pxl.try_into().unwrap();
+                        }
+                    }
+                }
+            }
+        }
+
+        let pal = match format{
+            ImgFmt::CI4 | ImgFmt::CI8 => Some(palette),
+            _ => None,
+        };
+
+        SpriteFrame{w: w as usize,h: h as usize, header: header, chk_hdrs:chk_hdrs, palette : pal, pixel_data: pxl_data.into_iter().flatten().flatten().collect()}
+    }
+}
 
 pub struct Sprite{
     format: ImgFmt,
+    pub frame: Vec<SpriteFrame>,
     bytes: Vec<u8>,
 }
 
 impl Sprite{
     pub fn from_bytes(in_bytes: &[u8])->Sprite{
+        let frame_cnt = u16::from_be_bytes([in_bytes[0], in_bytes[1]]);
         let format = u16::from_be_bytes([in_bytes[2], in_bytes[3]]);
         let frmt = match format{
             0x0001 => ImgFmt::CI4,
@@ -643,13 +997,38 @@ impl Sprite{
             0x0800 => ImgFmt::RGBA32,
             _ => ImgFmt::Unknown(format),
         };
-        Sprite{format: frmt, bytes: in_bytes.to_vec()}
+        match frmt {
+            ImgFmt::Unknown(_) => {return Sprite{format: frmt, frame: Vec::new(), bytes: in_bytes.to_vec()}},
+            _=> {}
+        }
+
+        if frame_cnt > 0x100{
+            let mut offset = 8 as usize;
+            let chunk = SpriteChunk::new(in_bytes, &mut offset, &ImgFmt::RGBA16);
+            let frame = SpriteFrame{w:chunk.w, h:chunk.h, header: Vec::new(), chk_hdrs: vec![in_bytes[8..16].to_vec()], palette: None, pixel_data: Texture::rgba16_to_rgba32(&chunk.pixel_data)};
+            return Sprite{format: frmt, frame: vec![frame], bytes: in_bytes.to_vec()};
+        }
+        // println!("{:02X?}", &in_bytes[..0x10]);
+        let frames : Vec<SpriteFrame>= in_bytes[0x10..]
+                .chunks_exact(0x4)
+                .take(frame_cnt as usize)
+                .map(|a|{
+                    let offset = u32::from_be_bytes(a.try_into().unwrap());
+                    SpriteFrame::new(in_bytes, 0x10 + offset as usize + 4*frame_cnt as usize, &frmt)
+                })
+                .collect(); 
+        return Sprite{format: frmt, frame: frames, bytes: in_bytes.to_vec()};
     }
 
     pub fn read(path: &Path) -> Sprite{
-        Sprite{format: ImgFmt::Unknown(0), bytes: fs::read(path).unwrap()}
+        Sprite{format: ImgFmt::Unknown(0), frame: Vec::new(), bytes: fs::read(path).unwrap()}
     }
 }
+
+/// Sprite TODO !!!!!!!!!
+///     - struct members
+///     - read
+///     - to_bytes
 
 impl Asset for Sprite{
     fn to_bytes(&self)->Vec<u8>{
@@ -661,7 +1040,40 @@ impl Asset for Sprite{
     }
 
     fn write(&self, path: &Path){
+        //write bin. TODO remove once one to 1 conversion
         let mut bin_file = File::create(path).unwrap();
         bin_file.write_all(&self.bytes).unwrap();
+
+        //write descriptor yaml and folder containing frame pngs
+        let base_name = Path::new(path.file_stem().unwrap());
+        let fmt_str = base_name.extension().unwrap();
+        let new_base = Path::new(base_name.file_stem().unwrap());
+        let base_name = Path::new(new_base.file_stem().unwrap());
+        let base_path = path.parent().unwrap().join(base_name);
+        let mut desc_path = base_path.clone();
+        desc_path.set_extension("sprite.yaml");
+        let mut desc_f = File::create(desc_path).unwrap();
+        writeln!(desc_f, "type: Sprite").unwrap();
+        writeln!(desc_f, "format: {:?}", self.format).unwrap();
+        writeln!(desc_f, "frames:").unwrap();
+        
+        DirBuilder::new().recursive(true).create(&base_path.clone()).unwrap();
+        for(i, frame) in self.frame.iter().enumerate(){
+            let mut i_path = base_path.join(format!("{:02X}.", i));
+            i_path.set_extension(format!("{}.png",fmt_str.to_str().unwrap()));
+            writeln!(desc_f, "  - {:?}", i_path).unwrap();
+            let texture_f = File::create(i_path).unwrap();
+            let ref mut w = BufWriter::new(texture_f);
+
+            let mut encoder = png::Encoder::new(w, frame.w as u32, frame.h as u32);
+            encoder.set_color(png::ColorType::Rgba);
+            encoder.set_depth(png::BitDepth::Eight);
+            let mut writer = encoder.write_header().unwrap();
+
+            let data = &frame.pixel_data;
+            // let mirrored : Vec<u8> = data.rchunks_exact(4*frame.w).map(|a|{a.to_vec()}).flatten().collect();
+
+            writer.write_image_data(&data).unwrap(); // Save
+        }
     }
 }
