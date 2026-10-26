@@ -112,7 +112,13 @@ impl AssetFolder{
                 None => Vec::new(),
                 Some(ass) => {
                     match &a.meta.c_flag{
-                        true => bk::zip(&ass.to_bytes()),
+                        true => {
+                            // Compressed assets are padded to 8 bytes with 0xAA. rarezip's
+                            // bk::zip did this until rarezip 4a911ff, so it is done here now.
+                            let mut zipped = bk::zip(&ass.to_bytes());
+                            zipped.resize((zipped.len() + (8 - 1)) & !(8 - 1), 0xAA);
+                            zipped
+                        },
                         false => ass.to_bytes(),
                     }
                 },
